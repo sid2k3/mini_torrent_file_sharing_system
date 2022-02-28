@@ -1,0 +1,9 @@
+{
+    "tracker_url": {
+        "tracker_ip": "192.168.1.43",
+        "tracker_port": 5050
+    },
+    "hash_string": "cab7480910b2fdaca8b9d6fc0d574fb0929a195f",
+    "file_name": "test.pdf",
+    "file_size": 148671
+}

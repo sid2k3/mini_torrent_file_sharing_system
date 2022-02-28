@@ -1,0 +1,8 @@
+venv
+ok.pdf
+.idea
+downloaded_files
+*.mp4
+*.pdf
+*.txt
+__pycache__
