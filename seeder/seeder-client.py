@@ -161,13 +161,13 @@ def download_file_from_seeders(torrent_file_path: str):
         pass
 
     for piece in arranged_pieces:
-        time.sleep(0.1)
+        # time.sleep(0.1)
         # TODO: ADD THREAD
         get_piece_from_seeder(piece, map_of_connections, map_of_pieces_to_seeders, destination_path)
         print(f"PIECE: {piece} RECEIVED AND WRITTEN")
     print("ALL PIECES WRITTEN TO FILE")
     print("SENDING DISCONNECT MESSAGE TO ALL CONNECTIONS")
-    time.sleep(10)
+    # time.sleep(10)
     for seeder in map_of_connections:
         conn = map_of_connections[seeder]
         conn.sendall(pad_string(DISCONNECT_MESSAGE, 40).encode())
@@ -204,8 +204,14 @@ def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces
 
 def write_to_file(conn: socket.socket, destination_path, piece_no):
     with open(destination_path, mode="r+b") as file:
-        bytes_received = conn.recv(BUFFER_SIZE + HEADER_SIZE)
-        header_received = bytes_received[0:50].decode()
+        while True:
+            bytes_received = conn.recv(BUFFER_SIZE + HEADER_SIZE)
+            header_received = bytes_received[0:50].decode()
+            if header_received.split(SEPARATOR)[0] == "HEADER" and int(header_received.split(SEPARATOR)[1]) == piece_no:
+                break
+            else:
+                print("Invalid Packet")
+
         print("***********HEADER*************")
         print(header_received)
         print("***********HEADER*************")
