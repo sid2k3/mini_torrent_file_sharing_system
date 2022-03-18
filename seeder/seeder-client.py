@@ -199,18 +199,31 @@ def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces
     print(temp)
     test_list.append((piece_no, conn.getpeername()[0]))
     conn.sendall(temp.encode())
-    write_to_file(conn, destination_path, piece_no)
+    write_to_file(conn, destination_path, piece_no, map_of_connections, map_of_pieces_to_seeders)
 
 
-def write_to_file(conn: socket.socket, destination_path, piece_no):
+def write_to_file(conn: socket.socket, destination_path, piece_no, map_of_connections: dict,
+                  map_of_pieces_to_seeders: dict):
+    invalid = False
+
     with open(destination_path, mode="r+b") as file:
-        while True:
-            bytes_received = conn.recv(BUFFER_SIZE + HEADER_SIZE)
+
+        bytes_received = conn.recv(BUFFER_SIZE + HEADER_SIZE)
+        try:
             header_received = bytes_received[0:50].decode()
-            if header_received.split(SEPARATOR)[0] == "HEADER" and int(header_received.split(SEPARATOR)[1]) == piece_no:
-                break
+            if header_received.split(SEPARATOR)[0] == "HEADER" and int(
+                    header_received.split(SEPARATOR)[1]) == piece_no:
+                pass
             else:
-                print("Invalid Packet")
+                invalid = True
+        except UnicodeDecodeError:
+            invalid = True
+
+        if invalid:
+            print("Invalid Packet")
+            print(f"REQUESTING PIECE {piece_no} AGAIN")
+            file.close()
+            return get_piece_from_seeder(piece_no, map_of_connections, map_of_pieces_to_seeders, destination_path)
 
         print("***********HEADER*************")
         print(header_received)
@@ -317,19 +330,18 @@ def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
         download_req = conn.recv(40).decode().rstrip()
         if download_req == DISCONNECT_MESSAGE:
             print(f"DISCONNECT REQUEST FROM {other_client_addr}")
-            # conn.close()
-            # break
+            conn.close()
+            break
 
         print(download_req)
         if download_req.split(SEPARATOR)[0] == "DOWNLOAD":
             piece_requested = int(download_req.split(SEPARATOR)[1])
             print(f"DOWNLOAD REQUEST FROM {other_client_addr} PIECE REQUESTED: {piece_requested}")
-
-            handle_download_request(conn, piece_requested, file_required)
+            thread = threading.Thread(target=handle_download_request,
+                                      args=(conn, piece_requested, file_required))
+            thread.start()
+            # handle_download_request(conn, piece_requested, file_required)
             print(f"DOWNLOAD REQUEST FOR PIECE {piece_requested} HANDLED")
-            # thread = threading.Thread(target=handle_download_request,
-            #                           args=(conn, piece_requested, file_required))
-            # thread.start()
 
 
 def handle_download_request(conn: socket.socket, piece_requested, file_string):
@@ -397,7 +409,7 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
 # TODO:Add remove functionality for seeders
 # TODO:Add try except for every socket connection
 # TODO:Add error handling for the case when the file doesn't exist on the seeder
-# other_file_path = root_dir / "video.mp4"
+# other_file_path = root_dir / "file1.mp4"
 # print(other_file_path.as_posix())
 # share_with_tracker(other_file_path.as_posix())
 # torrent_file_path = input("Enter torrent file path: ")
