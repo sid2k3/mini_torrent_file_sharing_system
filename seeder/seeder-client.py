@@ -9,6 +9,7 @@ from torrent_file_processor import SidTorrentFile
 import time
 
 BUFFER_SIZE = 512000
+HEADER_SIZE = 50
 SEPARATOR = "--SEPARATE--"
 DISCONNECT_MESSAGE = "DISCONNECT"
 PORT = 5050
@@ -203,14 +204,20 @@ def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces
 
 def write_to_file(conn: socket.socket, destination_path, piece_no):
     with open(destination_path, mode="r+b") as file:
-        bytes_read = conn.recv(BUFFER_SIZE)
+        bytes_received = conn.recv(BUFFER_SIZE + HEADER_SIZE)
+        header_received = bytes_received[0:50].decode()
+        print("***********HEADER*************")
+        print(header_received)
+        print("***********HEADER*************")
+        data_received = bytes_received[50:]
+
         print(f"RECEIVED PIECE NO. {piece_no}")
         file.seek(piece_no * BUFFER_SIZE, 0)
         print("*************************************")
         print(f"CALCULATION: {piece_no * BUFFER_SIZE}")
         print("*************************************")
 
-        file.write(bytes_read)
+        file.write(data_received)
         print(f"WRITTEN PIECE NO. {piece_no} at offset {file.tell()}")
 
 
@@ -335,10 +342,13 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
         print(f"REQUESTED FILE FOUND, PATH: {required_file_path}")
         print("SENDING REQUIRED PIECE TO CLIENT")
 
+    header_string = pad_string(f"HEADER{SEPARATOR}{piece_requested}{SEPARATOR}", 50).encode()
+
     with open(required_file_path, mode="rb") as file:
         file.seek(piece_requested * BUFFER_SIZE, 0)
         bytes_read = file.read(BUFFER_SIZE)
-        conn.sendall(bytes_read)
+        header_with_data = header_string + bytes_read
+        conn.sendall(header_with_data)
         print(f"REQUIRED PIECE ({piece_requested}) SENT")
 
 
@@ -381,7 +391,7 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
 # TODO:Add remove functionality for seeders
 # TODO:Add try except for every socket connection
 # TODO:Add error handling for the case when the file doesn't exist on the seeder
-# other_file_path = root_dir / "words.txt"
+# other_file_path = root_dir / "video.mp4"
 # print(other_file_path.as_posix())
 # share_with_tracker(other_file_path.as_posix())
 # torrent_file_path = input("Enter torrent file path: ")
@@ -393,4 +403,4 @@ torrent_file_path = input("Enter torrent file path: ")
 download_file_from_seeders(torrent_file_path)
 # print(__file__)
 # print("poklsadkapsokd")
-print(test_list)
+# print(test_list)
