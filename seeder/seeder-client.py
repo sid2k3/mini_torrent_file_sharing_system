@@ -16,7 +16,7 @@ PORT = 5050
 TRACKER_IP = "192.168.1.43"
 TRACKER_ADDR = (TRACKER_IP, PORT)
 file_path = "C:\\Users\\Jetblack\\PycharmProjects\\sidtorrent\\seeder\\test.pdf"
-SEND_PORT = 5051
+SEND_PORT = 10023
 THIS_ADDRESS = (socket.gethostbyname(socket.gethostname()), SEND_PORT)
 
 root_dir = Path(__file__).parent
@@ -180,11 +180,11 @@ def download_file_from_seeders(torrent_file_path: str):
                 continue
             # time.sleep(0.1)
             # TODO: ADD THREAD
-            thread1 = threading.Thread(target=get_piece_from_seeder,
+            thread2 = threading.Thread(target=get_piece_from_seeder,
                                        args=(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
 
                                              received_pieces, file_received))
-            thread1.start()
+            thread2.start()
         print("SLEEPING FOR 60s BEFORE NEXT TRY")
         time.sleep(60)
         # get_piece_from_seeder(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
@@ -424,6 +424,7 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
         header_with_data = header_string + bytes_read
         conn.sendall(header_with_data)
         print(f"REQUIRED PIECE ({piece_requested}) SENT")
+        print(f"SENT DATA LENGTH: {len(header_with_data)}")
 
 
 # def handle_download_request(download_conn: socket.socket, other_client_addr: (str, int)):
