@@ -17,3 +17,4 @@ class SidTorrentFile:
         self.file_name = torrent_file['file_name']
         self.pieces = len(torrent_file["hash_string"]) / 40
         self.file_string = hashlib.sha1(self.hash_string.encode()).hexdigest()
+        self.file_size = torrent_file['file_size']
