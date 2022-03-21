@@ -23,6 +23,27 @@ root_dir = Path(__file__).parent
 download_dir = root_dir / "downloaded_files"
 
 
+def my_send(conn, msg, msg_len):
+    total_sent = 0
+    while total_sent < msg_len:
+        sent = conn.send(msg[total_sent:])
+        if sent == 0:
+            raise RuntimeError("socket connection broken")
+        total_sent = total_sent + sent
+
+
+def my_recv(conn, msg_len):
+    chunks = []
+    bytes_recd = 0
+    while bytes_recd < msg_len:
+        chunk = conn.recv(min(msg_len - bytes_recd, 2048))
+        if chunk == b'':
+            raise RuntimeError("socket connection broken")
+        chunks.append(chunk)
+        bytes_recd = bytes_recd + len(chunk)
+    return b''.join(chunks)
+
+
 def pad_string(string: str, size):
     return string.ljust(size, ' ')
 
@@ -99,9 +120,9 @@ def share_with_tracker(filepath: str):
     file_name = os.path.basename(filepath)
     hash_of_hash_string = generate_torrent_file(filepath)
     port = SEND_PORT
-    client.sendall(f"{'SHARE':<10}".encode())
+    my_send(client, f"{'SHARE':<10}".encode(), 10)
     msg = f"{file_name}{SEPARATOR}{hash_of_hash_string}{SEPARATOR}{SEND_PORT}"
-    client.sendall(msg.encode())
+    my_send(client, pad_string(msg, BUFFER_SIZE).encode(), BUFFER_SIZE)
     print("METADATA SUCCESSFULLY SENT TO TRACKER")
     client.close()
 
@@ -114,12 +135,12 @@ def get_seeder_list_from_tracker(torrent_filepath: str):
     file_string = torrent_file.file_string
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     conn.connect(tracker_url)
-    conn.sendall(f"{'GET':<10}".encode())
+    my_send(conn, f"{'GET':<10}".encode(), 10)
     print("ok")
     print(file_string)
-    conn.sendall(file_string.encode())
+    my_send(conn, pad_string(file_string, BUFFER_SIZE).encode(), BUFFER_SIZE)
     print("ok")
-    seeders = conn.recv(BUFFER_SIZE).decode()
+    seeders = my_recv(conn, BUFFER_SIZE).decode().rstrip()
     if seeders == "NO FILE FOUND":
         print("CORRUPT TORRENT FILE")
         seeder_list = []
@@ -174,22 +195,35 @@ def download_file_from_seeders(torrent_file_path: str):
             file_received))
 
         thread1.start()
-    while len(received_pieces) != num_of_pieces:
-        for piece in arranged_pieces:
-            if piece in received_pieces:
-                continue
-            # time.sleep(0.1)
-            # TODO: ADD THREAD
-            thread2 = threading.Thread(target=get_piece_from_seeder,
-                                       args=(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
 
-                                             received_pieces, file_received))
-            thread2.start()
-        print("SLEEPING FOR 60s BEFORE NEXT TRY")
-        time.sleep(60)
-        # get_piece_from_seeder(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
-        #                       listening_sockets,
-        #                       received_pieces)
+    last_received = 0
+    while len(received_pieces) != num_of_pieces:
+
+        if len(received_pieces) == last_received:
+
+            print("SENDING DOWNLOAD REQUEST FOR ALL THE PIECES TO SEEDERS")
+            for piece in arranged_pieces:
+
+                if piece in received_pieces:
+                    continue
+
+                get_piece_from_seeder(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
+
+                                      received_pieces, file_received)
+
+                print(f"PIECES RECEIVED TILL NOW : {len(received_pieces)}")
+                # time.sleep(0.1)
+                # TODO: ADD THREAD
+                # thread2 = threading.Thread(target=get_piece_from_seeder,
+                #                            args=(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
+                #
+                #                                  received_pieces, file_received))
+                # thread2.start()
+            # print("SLEEPING FOR 45s BEFORE NEXT TRY")
+
+        last_received = len(received_pieces)
+        print("SLEEPING FOR 45s BEFORE NEXT TRY")
+        time.sleep(45)
 
     print("ALL PIECES WRITTEN TO FILE")
     print("SENDING DISCONNECT MESSAGE TO ALL CONNECTIONS")
@@ -198,7 +232,7 @@ def download_file_from_seeders(torrent_file_path: str):
 
     for seeder in map_of_connections:
         conn = map_of_connections[seeder]
-        conn.sendall(pad_string(DISCONNECT_MESSAGE, 40).encode())
+        my_send(conn, pad_string(DISCONNECT_MESSAGE, 40).encode(), 40)
 
     # seeder_1 = seeder_list[0]
     # conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -227,7 +261,7 @@ def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces
     temp = pad_string(f"DOWNLOAD{SEPARATOR}{piece_no}", 40)
     print(temp)
     test_list.append((piece_no, conn.getpeername()[0]))
-    conn.sendall(temp.encode())
+    my_send(conn, temp.encode(), len(temp))
     # if conn.getpeername()[0] not in listening_sockets:
     #     listening_sockets.add(conn.getpeername()[0])
     #     # TODO THREAD
@@ -248,7 +282,7 @@ def write_to_file(conn: socket.socket, destination_path, map_of_connections: dic
         while not file_received:
             invalid = False
             try:
-                bytes_received = conn.recv(BUFFER_SIZE + HEADER_SIZE)
+                bytes_received = my_recv(conn, BUFFER_SIZE + HEADER_SIZE)
             except ConnectionAbortedError or ConnectionResetError:
                 break
             try:
@@ -259,6 +293,10 @@ def write_to_file(conn: socket.socket, destination_path, map_of_connections: dic
                 if header_received.split(SEPARATOR)[0] == "HEADER" and 0 <= int(
                         header_received.split(SEPARATOR)[1]) <= last_piece_no:
                     piece_no = int(header_received.split(SEPARATOR)[1])
+                elif header_received.rstrip() == f"{DISCONNECT_MESSAGE}":
+                    print(f"DISCONNECT MESSAGE FROM SEEDER {conn.getpeername()} RECEIVED")
+                    print(f"ALL PIECES FROM SEEDER {conn.getpeername()} RECEIVED")
+                    break
                 else:
                     invalid = True
             except UnicodeDecodeError:
@@ -278,7 +316,8 @@ def write_to_file(conn: socket.socket, destination_path, map_of_connections: dic
             print("***********HEADER*************")
             print(header_received)
             print("***********HEADER*************")
-            data_received = bytes_received[50:]
+
+            data_received = bytes_received[50:].lstrip()
 
             print(f"RECEIVED PIECE NO. {piece_no}")
             print(f"PIECE: {piece_no} RECEIVED AND WRITTEN")
@@ -301,7 +340,7 @@ def connect_to_all_seeders(seeder_list: list, file_string: str):
         conn.connect(seeder)
         print(f"CONNECTION WITH SEEDER {seeder} ESTABLISHED")
         map_of_connections[seeder] = conn
-        conn.sendall(file_string.encode())
+        my_send(conn, file_string.encode(), len(file_string))
 
     print(f"SEEDERS CONNECTED: {len(map_of_connections)} out of {len(seeder_list)} seeders")
     return map_of_connections
@@ -313,10 +352,10 @@ def get_pieces_info_from_seeders(seeder_list: list, file_string: str, map_of_con
     for seeder in seeder_list:
         conn = map_of_connections[seeder]
 
-        conn.sendall(pad_string("PIECES", 10).encode())
+        my_send(conn, pad_string("PIECES", 10).encode(), 10)
 
         # RECEIVE PIECES INFO
-        pieces_available = conn.recv(BUFFER_SIZE).decode().rstrip().split(SEPARATOR)
+        pieces_available = my_recv(conn, BUFFER_SIZE).decode().rstrip().split(SEPARATOR)
         pieces_available = map(lambda x: int(x), pieces_available)
 
         for piece in pieces_available:
@@ -345,7 +384,7 @@ def send_pieces_info(conn: socket.socket, other_client_addr: (str, int), file_st
     # TODO: HANDLE EXCEPTION HERE
     if file_string in currently_seeding:
         pieces_string = SEPARATOR.join(currently_seeding[file_string]["pieces"])
-        conn.sendall(pad_string(pieces_string, BUFFER_SIZE).encode())
+        my_send(conn, pad_string(pieces_string, BUFFER_SIZE).encode(), BUFFER_SIZE)
         print("PIECES INFO SENT SUCCESSFULLY")
     else:
         pass
@@ -368,10 +407,11 @@ def listen_for_connections():
 def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
     """DIRECTS REQUEST TO THE CORRESPONDING FUNCTION"""
     print(f"CONNECTION FROM {other_client_addr}")
-    file_required = conn.recv(40).decode()
+    file_required = my_recv(conn, 40).decode()
     print(f"REQUESTED FILE {file_required}")
-    request_type = conn.recv(10).decode()
+    request_type = my_recv(conn, 10).decode()
     request_type = request_type.rstrip()
+
     print(f"REQUEST TYPE: {request_type}")
     if request_type == "PIECES":
         send_pieces_info(conn, other_client_addr, file_required)
@@ -379,10 +419,15 @@ def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
     # WAIT FOR DOWNLOAD REQUEST
     print(f"WAITING FOR DOWNLOAD REQUEST FROM {other_client_addr}")
     while True:
-        download_req = conn.recv(40).decode().rstrip()
+        download_req = my_recv(conn, 40).decode().rstrip()
         if download_req == DISCONNECT_MESSAGE:
             print(f"DISCONNECT REQUEST FROM {other_client_addr}")
+            my_send(conn, pad_string(DISCONNECT_MESSAGE, BUFFER_SIZE + HEADER_SIZE).encode(), BUFFER_SIZE + HEADER_SIZE)
+            time.sleep(10)
+            print(f"CLOSING CONNECTION WITH CLIENT {conn.getpeername()}")
+
             conn.close()
+
             break
 
         print(download_req)
@@ -398,6 +443,7 @@ def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
             # thread.start()
             handle_download_request(conn, piece_requested, file_required)
             print(f"DOWNLOAD REQUEST FOR PIECE {piece_requested} HANDLED")
+    print(f"THREAD CORRESPONDING TO CONNECTION WITH CLIENT {other_client_addr}  CLOSED")
 
 
 def handle_download_request(conn: socket.socket, piece_requested, file_string):
@@ -421,8 +467,15 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
     with open(required_file_path, mode="rb") as file:
         file.seek(piece_requested * BUFFER_SIZE, 0)
         bytes_read = file.read(BUFFER_SIZE)
+
+        # Condition to handle last piece
+
+        if len(bytes_read) != BUFFER_SIZE:
+            header_string = pad_string(f"HEADER{SEPARATOR}{piece_requested}{SEPARATOR}",
+                                       HEADER_SIZE + BUFFER_SIZE - len(bytes_read)).encode()
+
         header_with_data = header_string + bytes_read
-        conn.sendall(header_with_data)
+        my_send(conn, header_with_data, len(header_with_data))
         print(f"REQUIRED PIECE ({piece_requested}) SENT")
         print(f"SENT DATA LENGTH: {len(header_with_data)}")
 
