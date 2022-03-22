@@ -36,7 +36,7 @@ def my_recv(conn, msg_len):
     chunks = []
     bytes_recd = 0
     while bytes_recd < msg_len:
-        chunk = conn.recv(min(msg_len - bytes_recd, 2048))
+        chunk = conn.recv(min(msg_len - bytes_recd, 1024))
         if chunk == b'':
             raise RuntimeError("socket connection broken")
         chunks.append(chunk)
@@ -181,9 +181,14 @@ def download_file_from_seeders(torrent_file_path: str):
     modified_file_name = f"downloaded-{torrent_file.file_name}"
 
     destination_path = download_dir / modified_file_name
-    with open(destination_path, mode="wb") as file:
-        pass
-
+    try:
+        with open(destination_path, mode="wb") as file:
+            pass
+    except FileNotFoundError:
+        p = Path("download_dir/")
+        p.mkdir(parents=True, exist_ok=True)
+        with open(destination_path, mode="wb") as file:
+            pass
     # listening_sockets = set()
     received_pieces = set()
 
@@ -192,7 +197,7 @@ def download_file_from_seeders(torrent_file_path: str):
         conn = map_of_connections[seeder]
         thread1 = threading.Thread(target=write_to_file, args=(
             conn, destination_path, map_of_connections, map_of_pieces_to_seeders, received_pieces,
-            file_received))
+            file_received, torrent_file_path))
 
         thread1.start()
 
@@ -251,7 +256,7 @@ test_list = []
 
 def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces_to_seeders: dict, destination_path,
                           received_pieces: set, file_received: bool):
-    """Gets the specified piece from the seeder and writes to file"""
+    """Sends the download request for the specified piece to the seeder"""
     random.shuffle(map_of_pieces_to_seeders[piece_no])
     # TODO: ADD LOGIC FOR CONTACTING 2ND SEEDER IF 1ST IS OFFLINE
 
@@ -275,8 +280,8 @@ def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces
 
 
 def write_to_file(conn: socket.socket, destination_path, map_of_connections: dict,
-                  map_of_pieces_to_seeders: dict, received_pieces: set, file_received: bool):
-    last_piece_no = len(map_of_pieces_to_seeders)
+                  map_of_pieces_to_seeders: dict, received_pieces: set, file_received: bool, torrent_file_path: str):
+    last_piece_no = len(map_of_pieces_to_seeders) - 1
 
     with open(destination_path, mode="r+b") as file:
         while not file_received:
@@ -316,14 +321,19 @@ def write_to_file(conn: socket.socket, destination_path, map_of_connections: dic
             print("***********HEADER*************")
             print(header_received)
             print("***********HEADER*************")
-
-            data_received = bytes_received[50:].lstrip()
+            if piece_no == last_piece_no:
+                torrent_file = SidTorrentFile(torrent_file_path)
+                last_piece_size = torrent_file.file_size % 512000
+                data_received = bytes_received[50:50 + last_piece_size]
+            else:
+                data_received = bytes_received[50:]
 
             print(f"RECEIVED PIECE NO. {piece_no}")
             print(f"PIECE: {piece_no} RECEIVED AND WRITTEN")
             file.seek(piece_no * BUFFER_SIZE, 0)
             print("*************************************")
             print(f"CALCULATION: {piece_no * BUFFER_SIZE}")
+            print(f"WRITING {len(data_received)} BYTES TO FILE")
             print("*************************************")
 
             file.write(data_received)
@@ -437,7 +447,7 @@ def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
             except ValueError:
                 continue
 
-            print(f"DOWNLOAD REQUEST FROM {other_client_addr} PIECE REQUESTED: {piece_requested}")
+            # print(f"DOWNLOAD REQUEST FROM {other_client_addr} PIECE REQUESTED: {piece_requested}")
             # thread = threading.Thread(target=handle_download_request,
             #                           args=(conn, piece_requested, file_required))
             # thread.start()
@@ -467,14 +477,15 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
     with open(required_file_path, mode="rb") as file:
         file.seek(piece_requested * BUFFER_SIZE, 0)
         bytes_read = file.read(BUFFER_SIZE)
-
+        print(f"READ LENGTH : {len(bytes_read)}")
         # Condition to handle last piece
+        header_with_data = header_string + bytes_read
 
         if len(bytes_read) != BUFFER_SIZE:
-            header_string = pad_string(f"HEADER{SEPARATOR}{piece_requested}{SEPARATOR}",
-                                       HEADER_SIZE + BUFFER_SIZE - len(bytes_read)).encode()
+            padded_spaces = " " * (BUFFER_SIZE - len(bytes_read))
+            padded_spaces = padded_spaces.encode()
+            header_with_data += padded_spaces
 
-        header_with_data = header_string + bytes_read
         my_send(conn, header_with_data, len(header_with_data))
         print(f"REQUIRED PIECE ({piece_requested}) SENT")
         print(f"SENT DATA LENGTH: {len(header_with_data)}")
@@ -519,16 +530,17 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
 # TODO:Add remove functionality for seeders
 # TODO:Add try except for every socket connection
 # TODO:Add error handling for the case when the file doesn't exist on the seeder
-# other_file_path = root_dir / "file1.mp4"
+# other_file_path = root_dir / "file3.pdf"
 # print(other_file_path.as_posix())
 # share_with_tracker(other_file_path.as_posix())
-# torrent_file_path = input("Enter torrent file path: ")
-# # get_seeder_list_from_tracker(torrent_file_path)
-# listen_for_connections()
-# #
-torrent_file_path = input("Enter torrent file path: ")
 
-download_file_from_seeders(torrent_file_path)
+# torrent_file_path = input("Enter torrent file path: ")
+# get_seeder_list_from_tracker(torrent_file_path)
+listen_for_connections()
+# # #
+# torrent_file_path = input("Enter torrent file path: ")
+#
+# download_file_from_seeders(torrent_file_path)
 # print(__file__)
 # print("poklsadkapsokd")
 # print(test_list)
