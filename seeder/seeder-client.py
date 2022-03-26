@@ -15,7 +15,7 @@ DISCONNECT_MESSAGE = "DISCONNECT"
 PORT = 5050
 TRACKER_IP = "192.168.1.43"
 TRACKER_ADDR = (TRACKER_IP, PORT)
-file_path = "C:\\Users\\Jetblack\\PycharmProjects\\sidtorrent\\seeder\\test.pdf"
+# file_path = "C:\\Users\\Jetblack\\PycharmProjects\\sidtorrent\\seeder\\test.pdf"
 SEND_PORT = 10023
 THIS_ADDRESS = (socket.gethostbyname(socket.gethostname()), SEND_PORT)
 
@@ -48,7 +48,7 @@ def pad_string(string: str, size):
     return string.ljust(size, ' ')
 
 
-def generate_hash_string(filepath: str):
+def generate_hash_string(filepath: Path):
     hash_string = ""
     with open(filepath, mode="rb") as file:
         while True:
@@ -68,7 +68,7 @@ def generate_hash_string(filepath: str):
     return hash_string
 
 
-def generate_torrent_file(filepath: str):
+def generate_torrent_file(filepath: Path):
     tracker_url = {
         "tracker_ip": TRACKER_ADDR[0],
         "tracker_port": TRACKER_ADDR[1]
@@ -77,19 +77,24 @@ def generate_torrent_file(filepath: str):
     dictionary = {
         "tracker_url": tracker_url,
         "hash_string": hash_string,
-        "file_name": os.path.basename(filepath),
-        "file_size": os.path.getsize(filepath)
+        "file_name": filepath.name,
+        "file_size": os.path.getsize(filepath.as_posix())
     }
     file_name = os.path.basename(filepath)
     print(file_name)
     hash_of_hash_string = update_path_map(hash_string, filepath)
-    with open(f"torrent_files/{file_name}.sidtorrent", mode="w") as torrent_file:
-        json.dump(dictionary, torrent_file, indent=4)
+    try:
+        with open(root_dir / f"torrent_files/{file_name}.sidtorrent", mode="w") as torrent_file:
+            json.dump(dictionary, torrent_file, indent=4)
+    except FileNotFoundError:
+        Path(root_dir / 'torrent_files').mkdir()
+        with open(root_dir / f"torrent_files/{file_name}.sidtorrent", mode="w") as torrent_file:
+            json.dump(dictionary, torrent_file, indent=4)
 
     return hash_of_hash_string
 
 
-def update_path_map(hash_string, filepath: str):
+def update_path_map(hash_string, filepath: Path):
     # file string
 
     # print(hash_string)
@@ -106,24 +111,56 @@ def update_path_map(hash_string, filepath: str):
         pass
 
     dictionary[hash_of_hash_string] = {}
-    dictionary[hash_of_hash_string]["path"] = filepath
+    dictionary[hash_of_hash_string]["path"] = filepath.as_posix()
     dictionary[hash_of_hash_string]["pieces"] = [str(i) for i in range(int(len(hash_string) / 40))]
-    with open("currently_seeding/seeding.json", mode="w") as file:
-        json.dump(dictionary, file, indent=4)
+    try:
+        with open("currently_seeding/seeding.json", mode="w") as file:
+            json.dump(dictionary, file, indent=4)
+    except FileNotFoundError:
+        Path(root_dir / 'currently_seeding').mkdir()
+        with open("currently_seeding/seeding.json", mode="w") as file:
+            json.dump(dictionary, file, indent=4)
 
     return hash_of_hash_string
 
 
-def share_with_tracker(filepath: str):
+def update_path_map_while_downloading(filepath: Path, file_string: str, received_pieces: set):
+    dictionary = {}
+    try:
+        with open("currently_seeding/seeding.json", mode="r") as file:
+            dictionary = json.load(file)
+    except FileNotFoundError:
+        pass
+
+    dictionary[file_string] = {}
+    dictionary[file_string]["path"] = filepath.as_posix()
+    dictionary[file_string]["pieces"] = [str(i) for i in received_pieces]
+    print(root_dir)
+
+    try:
+        with open(root_dir / 'currently_seeding/seeding.json', mode="w") as file:
+            json.dump(dictionary, file, indent=4)
+    except FileNotFoundError:
+        Path(root_dir / 'currently_seeding').mkdir()
+        with open("currently_seeding/seeding.json", mode="w") as file:
+            json.dump(dictionary, file, indent=4)
+
+
+def share_with_tracker(filepath: Path, hash_of_hashstring: str = "", received_pieces: set = ()):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(TRACKER_ADDR)
-    file_name = os.path.basename(filepath)
-    hash_of_hash_string = generate_torrent_file(filepath)
-    port = SEND_PORT
+    file_name = filepath.name
+    if hash_of_hashstring == "":
+        hash_of_hash_string = generate_torrent_file(filepath)
+    else:
+        hash_of_hash_string = hash_of_hashstring
+        update_path_map_while_downloading(filepath, hash_of_hash_string, received_pieces)
+
     my_send(client, f"{'SHARE':<10}".encode(), 10)
     msg = f"{file_name}{SEPARATOR}{hash_of_hash_string}{SEPARATOR}{SEND_PORT}"
     my_send(client, pad_string(msg, BUFFER_SIZE).encode(), BUFFER_SIZE)
     print("METADATA SUCCESSFULLY SENT TO TRACKER")
+    print("CONNECTION WITH TRACKER CLOSED")
     client.close()
 
 
@@ -185,11 +222,11 @@ def download_file_from_seeders(torrent_file_path: str):
         with open(destination_path, mode="wb") as file:
             pass
     except FileNotFoundError:
-        p = Path("download_dir/")
-        p.mkdir(parents=True, exist_ok=True)
+
+        download_dir.mkdir()
         with open(destination_path, mode="wb") as file:
             pass
-    # listening_sockets = set()
+
     received_pieces = set()
 
     # TODO THREAD
@@ -202,11 +239,17 @@ def download_file_from_seeders(torrent_file_path: str):
         thread1.start()
 
     last_received = 0
+
     while len(received_pieces) != num_of_pieces:
 
-        if len(received_pieces) == last_received:
+        if len(received_pieces) >= num_of_pieces // 2:
+            # HALF PIECES RECEIVED CLIENT CAN START SEEDING NOW
+            print("HALF PIECES DOWNLOADED SENDING SEED REQUEST TO TRACKER")
+            share_with_tracker(destination_path, torrent_file.file_string, received_pieces)
 
+        if len(received_pieces) == last_received:
             print("SENDING DOWNLOAD REQUEST FOR ALL THE PIECES TO SEEDERS")
+
             for piece in arranged_pieces:
 
                 if piece in received_pieces:
@@ -217,14 +260,6 @@ def download_file_from_seeders(torrent_file_path: str):
                                       received_pieces, file_received)
 
                 print(f"PIECES RECEIVED TILL NOW : {len(received_pieces)}")
-                # time.sleep(0.1)
-                # TODO: ADD THREAD
-                # thread2 = threading.Thread(target=get_piece_from_seeder,
-                #                            args=(piece, map_of_connections, map_of_pieces_to_seeders, destination_path,
-                #
-                #                                  received_pieces, file_received))
-                # thread2.start()
-            # print("SLEEPING FOR 45s BEFORE NEXT TRY")
 
         last_received = len(received_pieces)
         print("SLEEPING FOR 45s BEFORE NEXT TRY")
@@ -239,6 +274,8 @@ def download_file_from_seeders(torrent_file_path: str):
         conn = map_of_connections[seeder]
         my_send(conn, pad_string(DISCONNECT_MESSAGE, 40).encode(), 40)
 
+    print("ALL PIECES DOWNLOADED SENDING SEED REQUEST TO TRACKER")
+    share_with_tracker(destination_path, torrent_file.file_string, received_pieces)
     # seeder_1 = seeder_list[0]
     # conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # print(seeder_1)
@@ -530,17 +567,18 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
 # TODO:Add remove functionality for seeders
 # TODO:Add try except for every socket connection
 # TODO:Add error handling for the case when the file doesn't exist on the seeder
-# other_file_path = root_dir / "file3.pdf"
+# other_file_path = root_dir / "file1.mp4"
 # print(other_file_path.as_posix())
-# share_with_tracker(other_file_path.as_posix())
+# share_with_tracker(other_file_path)
 
 # torrent_file_path = input("Enter torrent file path: ")
 # get_seeder_list_from_tracker(torrent_file_path)
-listen_for_connections()
-# # #
-# torrent_file_path = input("Enter torrent file path: ")
-#
-# download_file_from_seeders(torrent_file_path)
+# listen_for_connections()
+# # # #
+torrent_file_path = input("Enter torrent file path: ")
+
+download_file_from_seeders(torrent_file_path)
 # print(__file__)
 # print("poklsadkapsokd")
 # print(test_list)
+# Path(root_dir / 'currently_seeding').mkdir()
