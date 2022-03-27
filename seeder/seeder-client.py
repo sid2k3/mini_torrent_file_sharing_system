@@ -7,15 +7,17 @@ import threading
 from pathlib import Path
 from torrent_file_processor import SidTorrentFile
 import time
+import sys
 
+can_quit = 0
+exit_called = False
 BUFFER_SIZE = 512000
 HEADER_SIZE = 50
 SEPARATOR = "--SEPARATE--"
 DISCONNECT_MESSAGE = "DISCONNECT"
 PORT = 5050
-TRACKER_IP = "192.168.1.43"
+TRACKER_IP = sys.argv[1]
 TRACKER_ADDR = (TRACKER_IP, PORT)
-# file_path = "C:\\Users\\Jetblack\\PycharmProjects\\sidtorrent\\seeder\\test.pdf"
 SEND_PORT = 10023
 THIS_ADDRESS = (socket.gethostbyname(socket.gethostname()), SEND_PORT)
 
@@ -147,6 +149,8 @@ def update_path_map_while_downloading(filepath: Path, file_string: str, received
 
 
 def share_with_tracker(filepath: Path, hash_of_hashstring: str = "", received_pieces: set = ()):
+    global can_quit
+    can_quit += 1
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(TRACKER_ADDR)
     file_name = filepath.name
@@ -162,6 +166,7 @@ def share_with_tracker(filepath: Path, hash_of_hashstring: str = "", received_pi
     print("METADATA SUCCESSFULLY SENT TO TRACKER")
     print("CONNECTION WITH TRACKER CLOSED")
     client.close()
+    can_quit -= 1
 
 
 def get_seeder_list_from_tracker(torrent_filepath: str):
@@ -193,6 +198,8 @@ def get_seeder_list_from_tracker(torrent_filepath: str):
 
 # pass destination path
 def download_file_from_seeders(torrent_file_path: str):
+    global can_quit
+    can_quit += 1
     seeder_list = get_seeder_list_from_tracker(torrent_file_path)
     torrent_file = SidTorrentFile(torrent_file_path)
     num_of_pieces = torrent_file.pieces
@@ -276,6 +283,7 @@ def download_file_from_seeders(torrent_file_path: str):
 
     print("ALL PIECES DOWNLOADED SENDING SEED REQUEST TO TRACKER")
     share_with_tracker(destination_path, torrent_file.file_string, received_pieces)
+    can_quit -= 1
     # seeder_1 = seeder_list[0]
     # conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # print(seeder_1)
@@ -304,16 +312,6 @@ def get_piece_from_seeder(piece_no: int, map_of_connections: dict, map_of_pieces
     print(temp)
     test_list.append((piece_no, conn.getpeername()[0]))
     my_send(conn, temp.encode(), len(temp))
-    # if conn.getpeername()[0] not in listening_sockets:
-    #     listening_sockets.add(conn.getpeername()[0])
-    #     # TODO THREAD
-    #     thread1 = threading.Thread(target=write_to_file, args=(
-    #         conn, destination_path, map_of_connections, map_of_pieces_to_seeders, received_pieces,
-    #         file_received))
-    #
-    #     thread1.start()
-    # write_to_file(conn, destination_path, map_of_connections, map_of_pieces_to_seeders, received_pieces,
-    #               file_received)
 
 
 def write_to_file(conn: socket.socket, destination_path, map_of_connections: dict,
@@ -439,13 +437,15 @@ def send_pieces_info(conn: socket.socket, other_client_addr: (str, int), file_st
 
 def listen_for_connections():
     """Listens for connections from other clients"""
-
+    global exit_called
     this_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     this_client.bind(THIS_ADDRESS)
     this_client.listen()
     print(f"[SEEDER STARTED] LISTENING ON {THIS_ADDRESS}")
     while True:
+        if exit_called:
+            return
         conn, other_client_addr = this_client.accept()
         thread = threading.Thread(target=handle_requests, args=(conn, other_client_addr))
         thread.start()
@@ -453,7 +453,9 @@ def listen_for_connections():
 
 def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
     """DIRECTS REQUEST TO THE CORRESPONDING FUNCTION"""
+    global can_quit
     print(f"CONNECTION FROM {other_client_addr}")
+    can_quit += 1
     file_required = my_recv(conn, 40).decode()
     print(f"REQUESTED FILE {file_required}")
     request_type = my_recv(conn, 10).decode()
@@ -491,18 +493,18 @@ def handle_requests(conn: socket.socket, other_client_addr: (str, int)):
             handle_download_request(conn, piece_requested, file_required)
             print(f"DOWNLOAD REQUEST FOR PIECE {piece_requested} HANDLED")
     print(f"THREAD CORRESPONDING TO CONNECTION WITH CLIENT {other_client_addr}  CLOSED")
+    can_quit -= 1
 
 
 def handle_download_request(conn: socket.socket, piece_requested, file_string):
     """HANDLES DOWNLOAD REQUEST AND SHARES THE REQUIRED PIECE TO THE CLIENT"""
     required_file_path = ""
-    # try except here
-    print("ok")
+
     with open(root_dir / "currently_seeding/seeding.json", mode="r") as file:
         currently_seeding = json.load(file)
 
     # print(currently_seeding)
-    print("ok1")
+
     print(file_string)
     if file_string in currently_seeding:
         required_file_path = currently_seeding[file_string]["path"]
@@ -529,6 +531,8 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
 
 
 def remove_seeding_file():
+    global can_quit
+    can_quit += 1
     dic = {}
     try:
         with open(root_dir / 'currently_seeding/seeding.json', mode="r") as file:
@@ -559,13 +563,58 @@ def remove_seeding_file():
     except FileNotFoundError:
         print("Currently there are no seeding files")
 
+    can_quit -= 1
 
-# TODO:Add remove functionality for seeders
+
 # TODO:Add try except for every socket connection
 # TODO:Add error handling for the case when the file doesn't exist on the seeder
-other_file_path = root_dir / "file1.mp4"
-print(other_file_path.as_posix())
-share_with_tracker(other_file_path)
+# other_file_path = root_dir / "file1.mp4"
+# print(other_file_path.as_posix())
+# share_with_tracker(other_file_path)
+
+
+def download_file():
+    torrent_file_path = input("Enter torrent file path: ")
+    thread = threading.Thread(target=download_file_from_seeders, args=[torrent_file_path])
+    thread.start()
+
+
+def share_file():
+    filepath = input("Enter absolute path of file to be shared: ")
+    thread = threading.Thread(target=share_with_tracker, args=[Path(filepath)])
+    thread.start()
+
+
+def start_seeder():
+    global exit_called
+    thread = threading.Thread(target=listen_for_connections)
+    thread.daemon = True
+    thread.start()
+    time.sleep(1)
+    while True:
+        print("******************************************************")
+        print("1) DOWNLOAD A FILE")
+        print("2) SHARE A FILE WITH TRACKER")
+        print("3) REMOVE A SEEDING FILE")
+        print("4) EXIT PROGRAM")
+        choice = int(input("Enter Choice: "))
+        if choice == 1:
+            download_file()
+        elif choice == 2:
+            share_file()
+        elif choice == 3:
+            remove_seeding_file()
+        elif choice == 4:
+            print("EXIT CALLED")
+            print("WAITING TILL ALL PROCESSES ARE COMPLETED")
+            while True:
+                if can_quit == 0:
+                    exit_called = True
+                    print("EXITING PROGRAM")
+                    return
+        else:
+            print("Invalid Choice")
+
 
 # torrent_file_path = input("Enter torrent file path: ")
 # get_seeder_list_from_tracker(torrent_file_path)
@@ -580,3 +629,4 @@ share_with_tracker(other_file_path)
 # Path(root_dir / 'currently_seeding').mkdir()
 # #
 # remove_seeding_file()
+start_seeder()
