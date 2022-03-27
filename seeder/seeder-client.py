@@ -528,57 +528,55 @@ def handle_download_request(conn: socket.socket, piece_requested, file_string):
         print(f"SENT DATA LENGTH: {len(header_with_data)}")
 
 
-# def handle_download_request(download_conn: socket.socket, other_client_addr: (str, int)):
-#     """Handles download request from other clients and shares the file with them without errors."""
-#
-#     print(f"DOWNLOAD CONNECTION FROM {other_client_addr}")
-#     file_string = download_conn.recv(40).decode()
-#     print(f"REQUESTED FILE: {file_string}")
-#     # Receiving file string of length 40
-#     required_file_path = ""
-#     # try except here
-#     print("ok")
-#     with open("currently_seeding/seeding.json", mode="r") as file:
-#         currently_seeding = json.load(file)
-#
-#     print(currently_seeding)
-#     print("ok1")
-#     print(file_string)
-#     if file_string in currently_seeding:
-#         required_file_path = currently_seeding[file_string]["path"]
-#         print(f"REQUESTED FILE FOUND, PATH: {required_file_path}")
-#         print("SENDING REQUIRED FILE TO CLIENT")
-#
-#     with open(required_file_path, mode="rb") as file:
-#         while True:
-#             bytes_read = file.read(BUFFER_SIZE)
-#             if not bytes_read:
-#                 download_conn.shutdown(socket.SHUT_WR)
-#
-#                 print(f"FILE SENT SUCCESSFULLY TO {other_client_addr}")
-#                 download_conn.close()
-#                 print(f"CONNECTION WITH {other_client_addr} CLOSED")
-#                 print("*****************************************************************")
-#                 break
-#
-#             download_conn.sendall(bytes_read)
+def remove_seeding_file():
+    dic = {}
+    try:
+        with open(root_dir / 'currently_seeding/seeding.json', mode="r") as file:
+            dic = json.load(file)
+            paths = [f['path'] for (key, f) in dic.items()]
+
+            for path in paths:
+                print(f"{paths.index(path):^5} {path:<100} ")
+
+            rem = int(input("SELECT THE INDEX OF THE FILE YOU WOULD LIKE TO REMOVE: "))
+            for (key, f) in dic.items():
+                if f['path'] == paths[rem]:
+                    item_to_be_removed = key
+
+            hash_of_hash_string = item_to_be_removed
+
+            dic.pop(item_to_be_removed)
+
+            print("ITEM REMOVED FROM CURRENTLY SEEDING")
+        with open(root_dir / 'currently_seeding/seeding.json', mode="w") as file:
+            json.dump(dic, file, indent=4)
+        conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn.connect(TRACKER_ADDR)
+        my_send(conn, pad_string("REMOVE", 10).encode(), 10)
+        msg = f"{hash_of_hash_string}{SEPARATOR}{SEND_PORT}"
+        my_send(conn, pad_string(msg, BUFFER_SIZE).encode(), BUFFER_SIZE)
+        print("REMOVE MESSAGE SENT TO TRACKER")
+    except FileNotFoundError:
+        print("Currently there are no seeding files")
 
 
 # TODO:Add remove functionality for seeders
 # TODO:Add try except for every socket connection
 # TODO:Add error handling for the case when the file doesn't exist on the seeder
-# other_file_path = root_dir / "file1.mp4"
-# print(other_file_path.as_posix())
-# share_with_tracker(other_file_path)
+other_file_path = root_dir / "file1.mp4"
+print(other_file_path.as_posix())
+share_with_tracker(other_file_path)
 
 # torrent_file_path = input("Enter torrent file path: ")
 # get_seeder_list_from_tracker(torrent_file_path)
 # listen_for_connections()
 # # # #
-torrent_file_path = input("Enter torrent file path: ")
-
-download_file_from_seeders(torrent_file_path)
+# torrent_file_path = input("Enter torrent file path: ")
+#
+# download_file_from_seeders(torrent_file_path)
 # print(__file__)
 # print("poklsadkapsokd")
 # print(test_list)
 # Path(root_dir / 'currently_seeding').mkdir()
+# #
+# remove_seeding_file()

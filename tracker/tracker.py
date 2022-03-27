@@ -1,6 +1,5 @@
 import socket
-import os
-import hashlib
+from pathlib import Path
 import threading
 import json
 
@@ -12,6 +11,7 @@ TRACKER_IP = socket.gethostbyname(socket.gethostname())
 TRACKER_ADDR = (TRACKER_IP, PORT)
 tracker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 tracker.bind(TRACKER_ADDR)
+root_dir = Path(__file__).parent
 
 
 def pad_string(string: str, size):
@@ -40,6 +40,8 @@ def my_recv(conn, msg_len):
 
 
 def start_tracker():
+    infomap_path = root_dir / 'infomap'
+    infomap_path.mkdir(exist_ok=True)
     tracker.listen()
     print(f"[TRACKER STARTED] LISTENING ON {TRACKER_ADDR}")
     while True:
@@ -60,6 +62,10 @@ def handle_requests(seeder: socket.socket, client_addr: (str, int)):
         thread = threading.Thread(target=handle_get_requests, args=(seeder, client_addr))
         thread.start()
         print(f"[GET SEEDER-LIST REQUEST] FROM {client_addr}")
+    elif request_type.split(" ")[0] == "REMOVE":
+        thread = threading.Thread(target=handle_remove_requests, args=(seeder, client_addr))
+        thread.start()
+        print(f"[REMOVE SEEDER REQUEST] FROM {client_addr}")
     else:
         print(request_type)
 
@@ -75,7 +81,7 @@ def handle_share_requests(seeder: socket.socket, seeder_addr: (str, int)):
     seeder_send_port = msg[2]
     seeder_url = f"{seeder_addr[0]}:{seeder_send_port}"
     try:
-        with open(file="infomap/info_map.json", mode="r") as file:
+        with open(file=root_dir / "infomap/info_map.json", mode="r") as file:
             dictionary = json.load(file)
     except FileNotFoundError:
         dictionary = {}
@@ -88,7 +94,7 @@ def handle_share_requests(seeder: socket.socket, seeder_addr: (str, int)):
         dictionary[file_string]["seeders"] = [seeder_url]
         dictionary[file_string]["name"] = file_name
 
-    with open(file="infomap/info_map.json", mode="w") as file:
+    with open(file=root_dir / "infomap/info_map.json", mode="w") as file:
         json.dump(dictionary, file, indent=4)
 
     print(f"SHARE REQUEST FROM {seeder_addr} HANDLED")
@@ -101,7 +107,7 @@ def handle_get_requests(client: socket.socket, client_addr: (str, int)):
     file_string = my_recv(client, BUFFER_SIZE).decode()
     file_string = file_string.rstrip()
     try:
-        with open(file="infomap/info_map.json", mode="r") as file:
+        with open(file=root_dir / "infomap/info_map.json", mode="r") as file:
             dictionary = json.load(file)
     except FileNotFoundError:
         dictionary = {}
@@ -120,6 +126,30 @@ def handle_get_requests(client: socket.socket, client_addr: (str, int)):
         my_send(client, nof_msg.encode(), len(nof_msg))
         print("[FILE STRING NOT FOUND]")
         print(f"[NO FILE FOUND MESSAGE] SENT TO {client_addr}")
+
+
+def handle_remove_requests(seeder: socket.socket, seeder_addr: (str, int)):
+    msg = my_recv(seeder, BUFFER_SIZE).decode()
+    msg = msg.rstrip()
+    print(msg)
+    print(f"METADATA FROM {seeder_addr} RECEIVED")
+    msg = msg.split(SEPARATOR)
+    file_string = msg[0]
+    seeder_send_port = msg[1]
+    seeder_url = f"{seeder_addr[0]}:{seeder_send_port}"
+
+    try:
+        with open(file=root_dir / "infomap/info_map.json", mode="r") as file:
+            dictionary = json.load(file)
+        dictionary[file_string]["seeders"].remove(seeder_url)
+        if len(dictionary[file_string]["seeders"]) == 0:
+            dictionary.pop(file_string)
+
+        print(f"SEEDER {seeder_url} REMOVED FROM INFOMAP")
+        with open(file=root_dir / "infomap/info_map.json", mode="w") as file:
+            json.dump(dictionary, file, indent=4)
+    except FileNotFoundError:
+        pass
 
 
 start_tracker()
