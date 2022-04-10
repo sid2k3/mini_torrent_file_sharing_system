@@ -197,8 +197,14 @@ def get_seeder_list_from_tracker(torrent_filepath: str):
 
 
 # pass destination path
+
+test_dic = {}
+
+
 def download_file_from_seeders(torrent_file_path: str):
     global can_quit
+
+    global test_dic
     can_quit += 1
     seeder_list = get_seeder_list_from_tracker(torrent_file_path)
     torrent_file = SidTorrentFile(torrent_file_path)
@@ -216,11 +222,12 @@ def download_file_from_seeders(torrent_file_path: str):
     map_of_connections = connect_to_all_seeders(seeder_list, torrent_file.file_string)
 
     map_of_pieces_to_seeders = get_pieces_info_from_seeders(seeder_list, torrent_file.file_string, map_of_connections)
-
+    test_dic = map_of_pieces_to_seeders
     # arrange pieces by rarity
     print("*********************************************************")
     print("ARRANGED PIECES:")
     arranged_pieces = rarest_first(map_of_pieces_to_seeders)
+
     print(arranged_pieces)
     modified_file_name = f"downloaded-{torrent_file.file_name}"
 
@@ -611,6 +618,9 @@ def start_seeder():
                 if can_quit == 0:
                     exit_called = True
                     print("EXITING PROGRAM")
+                    print(test_dic)
+                    print(test_list)
+
                     return
         else:
             print("Invalid Choice")
