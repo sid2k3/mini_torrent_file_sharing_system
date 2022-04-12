@@ -18,5 +18,5 @@ To use this system on public networks, TRACKER_IP should be the public IP of the
 be enabled on the tracker side as well as the seeder side.
 
 PORTS used for communication (Use port forwarding on these ports)  
-For Tracker 5050
+For Tracker 5050  
 For Seeder 10023  
