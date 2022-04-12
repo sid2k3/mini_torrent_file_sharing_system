@@ -6,7 +6,7 @@ on the torrent system.
 
 Instructions:-
 
-1) First start the tracker
+1) First start the tracker by using command 
     py tracker.py
    now the tracker/server is on listen mode on the local ip of the machine.
    
