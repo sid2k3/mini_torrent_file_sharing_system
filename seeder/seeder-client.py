@@ -116,7 +116,7 @@ def update_path_map(hash_string, filepath: Path):
     dictionary[hash_of_hash_string]["path"] = filepath.as_posix()
     dictionary[hash_of_hash_string]["pieces"] = [str(i) for i in range(int(len(hash_string) / 40))]
     try:
-        with open("currently_seeding/seeding.json", mode="w") as file:
+        with open(root_dir / "currently_seeding/seeding.json", mode="w") as file:
             json.dump(dictionary, file, indent=4)
     except FileNotFoundError:
         Path(root_dir / 'currently_seeding').mkdir()
@@ -639,4 +639,5 @@ def start_seeder():
 # Path(root_dir / 'currently_seeding').mkdir()
 # #
 # remove_seeding_file()
+# print(root_dir)
 start_seeder()
